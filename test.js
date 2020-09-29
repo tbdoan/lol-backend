@@ -18,6 +18,7 @@ const config = {
     },
 };
 const connection = new tedious_1.Connection(config);
+//@ts-ignore
 connection.connect();
 connection.on('connect', function (err) {
     // If no error, then good to proceed.

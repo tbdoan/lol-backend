@@ -17,6 +17,7 @@ const config = {
 };
 
 const connection = new Connection(config);
+//@ts-ignore
 connection.connect();
 connection.on('connect', function (err) {
   // If no error, then good to proceed.
