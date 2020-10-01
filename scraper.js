@@ -2,72 +2,89 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const puppeteer = require("puppeteer");
 const chalk = require("chalk");
+const constants_1 = require("./constants");
+const fs = require("fs");
 // from https://gist.github.com/silent-lad/374eea183f58be5e37962b4302f8970a#file-giantleap-js
 const error = chalk.bold.red;
 const success = chalk.keyword('green');
-async function scrape(blueChamp, redChamp, lane) {
+async function scrape(champ) {
     const browser = await puppeteer.launch({ headless: true });
+    const lanes = ['top', 'jungle', 'middle', 'bottom', 'support'];
+    let allMatchupsForOneChamp = {};
     try {
-        // open a new page
-        const page = await browser.newPage();
-        // enter url in page
-        const url = `https://lolalytics.com/lol/${blueChamp}/vs/${redChamp}/?lane=${lane}&vslane=${lane}`;
-        console.log(url);
-        await page.goto(url);
-        await page.waitForSelector('div.ChampionHeader_stats__f84LW', {
-            timeout: 1000
-        });
-        const info = await page.evaluate(() => {
-            const header = document.querySelector('.ChampionHeader_stats__f84LW');
-            return [
-                parseFloat(header.children[0].children[0].innerHTML.slice(0, -1)),
-                parseInt(header.children[1].children[0].innerHTML.replace(/,/g, ''))
-            ];
-        });
-        console.log(info);
-        await browser.close();
-        console.log( /*TODO: log the data */);
-        console.log(success('Browser Closed'));
-    }
-    catch (err) {
-        // Catch and display errors
-        console.log(error(err));
-        await browser.close();
-    }
-}
-scrape('khazix', 'nunu', 'jungle');
-async function getMatchup(blueChamp, redChamp, lane) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            const browser = await puppeteer.launch({ headless: false });
-            const page = await browser.newPage();
-            const url = `https://lolalytics.com/lol/${blueChamp}?lane=${lane}&vs=${redChamp}&vslane=${lane}`;
-            console.log(url);
-            await page.goto(url);
+        for (const lane of lanes) {
+            // open a new page
+            const url = `https://lolalytics.com/lol/${champ}/counters/?lane=${lane}&tier=all&patch=30&vslane=${lane}`;
             try {
-                await page.waitForSelector('.ChampionHeader_headervs__25ruZ', {
-                    timeout: 5000,
+                const page = await browser.newPage();
+                // enter url in page
+                await page.goto(url);
+                try {
+                    await page.waitForSelector('div.Counter_wr__Jxax6', {
+                        timeout: 5000,
+                    });
+                }
+                catch (err) {
+                    throw new Error(`No matchup data found at ${url}`);
+                }
+                const info = await page.evaluate(() => {
+                    const counters = document.querySelectorAll('.Counter_wrapper__2DHzU');
+                    let matchups = [];
+                    counters.forEach((counter) => {
+                        matchups.push({
+                            vs: counter.children[1].innerHTML,
+                            winrate: parseFloat(counter
+                                .getElementsByClassName('Counter_wr__Jxax6')[0]
+                                .innerHTML.slice(0, -1)),
+                            numGames: parseInt(counter
+                                .getElementsByClassName('Counter_games__QHwIK')[0]
+                                .innerHTML.replace(/,/g, '')),
+                        });
+                    });
+                    return matchups;
                 });
+                allMatchupsForOneChamp[lane] = info;
             }
             catch (err) {
-                browser.close();
-                return reject('no data!');
+                console.log(error(err));
+                allMatchupsForOneChamp[lane] = null;
             }
-            const wr = await page.evaluate(() => {
-                let headerText = document.querySelector('.ChampionHeader_headervs__25ruZ');
-                let winrate = headerText.children[5].children[0].innerHTML;
-                winrate = winrate.substring(0, winrate.indexOf('%'));
-                let numberGames = headerText.children[5].children[1].innerHTML;
-                numberGames = numberGames.substring(0, numberGames.indexOf('<'));
-                return [winrate, numberGames];
-            });
-            browser.close();
-            return resolve(wr);
         }
-        catch (err) {
-            browser.close();
-            return reject(err);
+    }
+    catch (err) {
+        // Catch errors with browser launching
+        console.log(error(err));
+    }
+    finally {
+        await browser.close();
+        console.log(success(champ + ': Browser closed!'));
+    }
+    return allMatchupsForOneChamp;
+}
+async function saveAsDictionary() {
+    let i = 1;
+    let final = {};
+    while (constants_1.champNames.length) {
+        const champs = constants_1.champNames.splice(0, 10);
+        let promises = [];
+        for (const champ of champs) {
+            promises.push(scrape(champ));
+        }
+        const resolved = await Promise.all(promises);
+        resolved.forEach((value, index) => {
+            final[champs[index]] = value;
+        });
+    }
+    const finalString = JSON.stringify(final);
+    fs.writeFile(`final.json`, finalString, (err) => {
+        if (err) {
+            console.log(error(err));
+        }
+        else {
+            console.log(`final.json written`);
+            i++;
         }
     });
 }
-module.exports = { getMatchup };
+saveAsDictionary();
+module.exports = { scrape };
