@@ -1,6 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const tedious_1 = require("tedious");
+const fs = require("fs");
+const chalk = require("chalk");
+const error = chalk.bold.red;
+const success = chalk.keyword('green');
 const config = {
     server: 'dodgepog.database.windows.net',
     authentication: {
@@ -17,13 +21,43 @@ const config = {
         validateBulkLoadParameters: true,
     },
 };
+function loadJSON() {
+    return JSON.parse(fs.readFileSync('final.json', { encoding: 'utf8', flag: 'r' }));
+}
+function insertRow(id, hero1, hero2, matchup, numGames, lane) {
+    let request = new tedious_1.Request('INSERT INTO Winrates VALUES(@id, @hero1, @hero2, @matchup, @numGames, @lane);', function (err) {
+        if (err) {
+            console.log(err);
+        }
+    });
+    request.addParameter('id', tedious_1.TYPES.Int, id);
+    request.addParameter('hero1', tedious_1.TYPES.Text, hero1);
+    request.addParameter('hero2', tedious_1.TYPES.Text, hero2);
+    request.addParameter('matchup', tedious_1.TYPES.Decimal, matchup);
+    request.addParameter('numGames', tedious_1.TYPES.Int, numGames);
+    request.addParameter('lane', tedious_1.TYPES.Text, lane);
+    connection.execSql(request);
+}
 const connection = new tedious_1.Connection(config);
 //@ts-ignore
 connection.connect();
 connection.on('connect', function (err) {
     // If no error, then good to proceed.
     console.log('Connected');
-    insertRow();
+    const data = loadJSON();
+    let i = 1;
+    for (const [hero1, hero1data] of Object.entries(data)) {
+        for (const [lane, laneObject] of Object.entries(hero1data)) {
+            if (laneObject !== null) {
+                for (const row of laneObject) {
+                    fs.appendFile('./final.csv');
+                    insertRow(i, hero1, row.vs, row.winrate, row.numGames, lane);
+                    i++;
+                }
+            }
+        }
+    }
+    console.log(i);
 });
 function executeStatement() {
     const request = new tedious_1.Request('SELECT * FROM dbo.winrates', function (err) {
@@ -46,30 +80,6 @@ function executeStatement() {
     });
     request.on('done', function (rowCount, more) {
         console.log(rowCount + ' rows returned');
-    });
-    connection.execSql(request);
-}
-function insertRow() {
-    let request = new tedious_1.Request('INSERT INTO Winrates VALUES(@id, @hero1id,@hero1, @hero2id, @hero2, @matchup);', function (err) {
-        if (err) {
-            console.log(err);
-        }
-    });
-    request.addParameter('id', tedious_1.TYPES.Int, 0);
-    request.addParameter('hero1id', tedious_1.TYPES.Int, 69);
-    request.addParameter('hero1', tedious_1.TYPES.Text, 'boonga');
-    request.addParameter('hero2id', tedious_1.TYPES.Int, 11);
-    request.addParameter('hero2', tedious_1.TYPES.Text, 'ya mums bruh');
-    request.addParameter('matchup', tedious_1.TYPES.Decimal, 0.5);
-    request.on('row', function (columns) {
-        columns.forEach(function (column) {
-            if (column.value === null) {
-                console.log('NULL');
-            }
-            else {
-                console.log('Product id of inserted item is ' + column.value);
-            }
-        });
     });
     connection.execSql(request);
 }
